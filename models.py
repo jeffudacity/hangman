@@ -1,49 +1,73 @@
 import random
+
 from datetime import date
+
+import endpoints
+
 from protorpc import messages
 from google.appengine.ext import ndb
+
+from utils import get_by_urlsafe
 
 
 class User(ndb.Model):
     """User profile"""
     name = ndb.StringProperty(required=True)
-    email =ndb.StringProperty()
+    email = ndb.StringProperty()
+
+
+class Phrase(ndb.Model):
+    """Phrase object for guessing."""
+
+    phrase_or_word = ndb.StringProperty(required=True)
+    category = ndb.StringProperty(required=True)
 
 
 class Game(ndb.Model):
     """Game object"""
-    target = ndb.IntegerProperty(required=True)
-    attempts_allowed = ndb.IntegerProperty(required=True)
-    attempts_remaining = ndb.IntegerProperty(required=True, default=5)
-    game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
+    phrase_key = ndb.KeyProperty(required=True, kind='Phrase')
+    visible_so_far = ndb.StringProperty(default='')
+    attempts_allowed = ndb.IntegerProperty(required=True, default=6)
+    attempts_remaining = ndb.IntegerProperty(required=True, default=6)
+    letters_guessed_so_far = ndb.StringProperty(default='')
+    game_over = ndb.BooleanProperty(required=True, default=False)
 
     @classmethod
-    def new_game(cls, user, min, max, attempts):
-        """Creates and returns a new game"""
-        if max < min:
-            raise ValueError('Maximum must be greater than minimum')
-        game = Game(user=user,
-                    target=random.choice(range(1, max + 1)),
+    def new_game(cls, user_urlsafe_key, phrase_urlsafe_key, attempts=6):
+        """Create and return a new game."""
+        phrase = get_by_urlsafe(phrase_urlsafe_key, Game)
+        if not phrase:
+            raise endpoints.NotFoundException('Phrase not found!')
+        user = get_by_urlsafe(user_urlsafe_key, User)
+        if not user:
+            raise endpoints.NotFoundException('User not found!')
+        visible_so_far = '?' * len(phrase)
+        game = Game(user=user.key,
+                    phrase_key=phrase.key,
+                    visible_so_far=visible_so_far,
                     attempts_allowed=attempts,
                     attempts_remaining=attempts,
-                    game_over=False)
+                    letters_guessed_so_far='',
+                    game_over=False,
+                    parent=phrase.key)
         game.put()
         return game
 
     def to_form(self, message):
-        """Returns a GameForm representation of the Game"""
+        """Return a GameForm representation of the Game."""
         form = GameForm()
         form.urlsafe_key = self.key.urlsafe()
         form.user_name = self.user.get().name
         form.attempts_remaining = self.attempts_remaining
+        form.visible_so_far = self.visible_so_far
+        form.letters_guessed_so_far = self.letters_guessed_so_far
         form.game_over = self.game_over
         form.message = message
         return form
 
     def end_game(self, won=False):
-        """Ends the game - if won is True, the player won. - if won is False,
-        the player lost."""
+        """End the game: if won is True, the player won otherwise they lost."""
         self.game_over = True
         self.put()
         # Add the game to the score 'board'
@@ -65,12 +89,15 @@ class Score(ndb.Model):
 
 
 class GameForm(messages.Message):
-    """GameForm for outbound game state information"""
+    """GameForm for outbound game state information."""
+
     urlsafe_key = messages.StringField(1, required=True)
     attempts_remaining = messages.IntegerField(2, required=True)
-    game_over = messages.BooleanField(3, required=True)
-    message = messages.StringField(4, required=True)
-    user_name = messages.StringField(5, required=True)
+    visible_so_far = messages.StringField(3, required=True)
+    letters_guessed_so_far = messages.StringField(4, required=True)
+    game_over = messages.BooleanField(5, required=True)
+    message = messages.StringField(6, required=True)
+    user_name = messages.StringField(7, required=True)
 
 
 class NewGameForm(messages.Message):
