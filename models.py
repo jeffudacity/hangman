@@ -20,7 +20,7 @@ class Phrase(ndb.Model):
     """Phrase object for guessing."""
 
     phrase_or_word = ndb.StringProperty(required=True)
-    category = ndb.StringProperty(required=True)
+    category = ndb.StringProperty(required=True, default='Miscellaneous')
 
 
 class Game(ndb.Model):
@@ -36,13 +36,13 @@ class Game(ndb.Model):
     @classmethod
     def new_game(cls, user_urlsafe_key, phrase_urlsafe_key, attempts=6):
         """Create and return a new game."""
-        phrase = get_by_urlsafe(phrase_urlsafe_key, Game)
+        phrase = get_by_urlsafe(phrase_urlsafe_key, Phrase)
         if not phrase:
             raise endpoints.NotFoundException('Phrase not found!')
         user = get_by_urlsafe(user_urlsafe_key, User)
         if not user:
             raise endpoints.NotFoundException('User not found!')
-        visible_so_far = '?' * len(phrase)
+        visible_so_far = '?' * len(phrase.phrase_or_word)
         game = Game(user=user.key,
                     phrase_key=phrase.key,
                     visible_so_far=visible_so_far,

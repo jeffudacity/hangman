@@ -4,7 +4,7 @@ from protorpc import remote, messages
 from google.appengine.api import memcache
 from google.appengine.api import taskqueue
 
-from models import User, Game, Score
+from models import User, Phrase, Game, Score
 from models import StringMessage, NewGameForm, GameForm, MakeMoveForm,\
     ScoreForms
 from utils import get_by_urlsafe
@@ -54,18 +54,24 @@ class HangmanAPI(remote.Service):
         if not user:
             raise endpoints.NotFoundException(
                     'A User with that name does not exist!')
+        phrase = Phrase.query(Phrase.phrase_or_word == request.phrase).get()
+        if not phrase:
+            phrase = Phrase(phrase_or_word=request.phrase)
+            phrase.put()
         try:
-            game = Game.new_game(user.key, request.min,
-                                 request.max, request.attempts)
-        except ValueError:
-            raise endpoints.BadRequestException('Maximum must be greater '
-                                                'than minimum!')
+            # new_game(cls, user_urlsafe_key, phrase_urlsafe_key, attempts=6)
+            game = Game.new_game(user.key.urlsafe(),
+                                 phrase.key.urlsafe(),
+                                 request.num_of_attempts)
+            return game.to_form('Good luck playing Hangman!')
+        except:
+            raise
 
-        # Use a task queue to update the average attempts remaining.
-        # This operation is not needed to complete the creation of a new game
-        # so it is performed out of sequence.
-        taskqueue.add(url='/tasks/cache_average_attempts')
-        return game.to_form('Good luck playing Guess a Number!')
+        # # Use a task queue to update the average attempts remaining.
+        # # This operation is not needed to complete the creation of a new game
+        # # so it is performed out of sequence.
+        # taskqueue.add(url='/tasks/cache_average_attempts')
+        # return game.to_form('Good luck playing Guess a Number!')
 
     @endpoints.method(request_message=GET_GAME_REQUEST,
                       response_message=GameForm,
