@@ -66,13 +66,21 @@ class Game(ndb.Model):
         form.message = message
         return form
 
+    def get_phrase(self):
+        """Return the string representation of the game's phrase."""
+        return self.phrase_key.get().phrase_or_word
+
     def end_game(self, won=False):
         """End the game: if won is True, the player won otherwise they lost."""
         self.game_over = True
         self.put()
         # Add the game to the score 'board'
-        score = Score(user=self.user, date=date.today(), won=won,
-                      guesses=self.attempts_allowed - self.attempts_remaining)
+        score = Score(user=self.user,
+                      date=date.today(),
+                      won=won,
+                      guesses=self.attempts_allowed - self.attempts_remaining,
+                      phrase_length=len(self.get_phrase())
+                      )
         score.put()
 
 
@@ -82,10 +90,14 @@ class Score(ndb.Model):
     date = ndb.DateProperty(required=True)
     won = ndb.BooleanProperty(required=True)
     guesses = ndb.IntegerProperty(required=True)
+    phrase_length = ndb.IntegerProperty(required=True)
 
     def to_form(self):
-        return ScoreForm(user_name=self.user.get().name, won=self.won,
-                         date=str(self.date), guesses=self.guesses)
+        return ScoreForm(user_name=self.user.get().name,
+                         won=self.won,
+                         date=str(self.date),
+                         guesses=self.guesses,
+                         phrase_length=self.phrase_length)
 
 
 class GameForm(messages.Message):
@@ -103,9 +115,8 @@ class GameForm(messages.Message):
 class NewGameForm(messages.Message):
     """Used to create a new game"""
     user_name = messages.StringField(1, required=True)
-    min = messages.IntegerField(2, default=1)
-    max = messages.IntegerField(3, default=10)
-    attempts = messages.IntegerField(4, default=5)
+    phrase = messages.StringField(2, required=True)
+    num_of_attempts = messages.IntegerField(3, default=6)
 
 
 class MakeMoveForm(messages.Message):
@@ -119,6 +130,7 @@ class ScoreForm(messages.Message):
     date = messages.StringField(2, required=True)
     won = messages.BooleanField(3, required=True)
     guesses = messages.IntegerField(4, required=True)
+    phrase_length = messages.IntegerField(5, required=True)
 
 
 class ScoreForms(messages.Message):
