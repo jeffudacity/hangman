@@ -1,3 +1,4 @@
+import re
 import logging
 import endpoints
 from protorpc import remote, messages
@@ -59,10 +60,9 @@ class HangmanAPI(remote.Service):
             phrase = Phrase(phrase_or_word=request.phrase)
             phrase.put()
         try:
-            # new_game(cls, user_urlsafe_key, phrase_urlsafe_key, attempts=6)
             game = Game.new_game(user.key.urlsafe(),
                                  phrase.key.urlsafe(),
-                                 request.num_of_attempts)
+                                 request.num_of_mistakes_allowed)
             return game.to_form('Good luck playing Hangman!')
         except:
             raise
@@ -94,25 +94,63 @@ class HangmanAPI(remote.Service):
     def make_move(self, request):
         """Makes a move. Returns a game state with message"""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
+        if not game:
+            raise endpoints.NotFoundException('Game not found!')
+
         if game.game_over:
             return game.to_form('Game already over!')
 
-        game.attempts_remaining -= 1
-        if request.guess == game.target:
-            game.end_game(True)
-            return game.to_form('You win!')
+        # Users can only guess one letter at a time. Let's verify the
+        # guess is a single character and is a letter from a-z or A-Z.
+        assert re.match("^[A-Za-z]$", request.guess_letter), 'Guess must be a single letter.'
 
-        if request.guess < game.target:
-            msg = 'Too low!'
-        else:
-            msg = 'Too high!'
+        # Users might accidentally guess a letter they have already
+        # guessed so far. When that happens we should preserve the state
+        # of the game.
+        if request.guess_letter in game.letters_guessed_so_far:
+            response_to_user = 'You have already guessed this letter: {}'
+            response_to_user = response_to_user.format(request.guess_letter)
+            return game.to_form(response_to_user)
 
-        if game.attempts_remaining < 1:
-            game.end_game(False)
-            return game.to_form(msg + ' Game over!')
-        else:
+        our_game_phrase = game.get_phrase()
+
+        # Most likely the user will not guess a correct letter.
+        if request.guess_letter not in our_game_phrase:
+            game.letters_guessed_so_far += request.guess_letter
+            game.mistakes_remaining -= 1
+
+            # If the user has no mistakes remaining, the game is over.
+            if game.mistakes_remaining == 0:
+                game.end_game(won=False)
+                response_to_user = 'Nope, you lose! The correct word was: {}'
+                response_to_user = response_to_user.format(our_game_phrase)
+            else:
+                response_to_user = 'Nope, this letter is not in the word: {}'
+                response_to_user = response_to_user.format(request.guess_letter)
+
             game.put()
-            return game.to_form(msg)
+            return game.to_form(response_to_user)
+
+        # If the user did guess a correct letter then we need to update
+        # the visible phrase.
+        else:
+            game.letters_guessed_so_far += request.guess_letter
+            for (index, letter) in enumerate(our_game_phrase):
+                if letter == request.guess_letter:
+                    game.visible_so_far = game.visible_so_far[0:index] + request.guess_letter + game.visible_so_far[index + 1:]
+
+            # If the visible phrase is identical to the game phrase then
+            # we know the user has guessed all the letters.
+            if game.visible_so_far == our_game_phrase:
+                game.end_game(won=True)
+                response_to_user = 'Congratulations, you win! You guessed the word: {}'
+                response_to_user = response_to_user.format(our_game_phrase)
+            else:
+                response_to_user = 'Yes, "{}" was a letter in the word.'
+                response_to_user = response_to_user.format(request.guess_letter)
+
+            game.put()
+            return game.to_form(response_to_user)
 
     @endpoints.method(response_message=ScoreForms,
                       path='scores',
